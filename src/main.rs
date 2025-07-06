@@ -514,7 +514,7 @@ fn preprocess_path_parameters(value: &Value, path_params: &HashMap<String, Strin
         Value::String(s) => {
             let mut result = s.clone();
             for (param_name, param_value) in path_params {
-                let placeholder = format!("{{path.{}}}", param_name);
+                let placeholder = format!("{{path.{param_name}}}");
                 result = result.replace(&placeholder, param_value);
             }
             json!(result)
