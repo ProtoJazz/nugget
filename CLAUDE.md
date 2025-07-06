@@ -63,8 +63,18 @@ cargo clippy
 - Generate UUIDs, random integers, and strings for response fields
 - Interpolate request payloads into response templates
 - Apply default values for missing payload fields
+- Path parameter extraction and substitution
 
 ### Flexible Configuration
 - YAML-based route configuration with variable definitions
 - Object storage settings for cross-endpoint data sharing
 - Template-based response generation with placeholder syntax
+- State management with clear endpoint for testing
+
+## Cross-Reference Patterns
+
+- `{objects.type}` - Complete objects of specified type
+- `{objects.type.field}` - Extract specific field from all objects
+- `{objects.type[id]}` - Retrieve specific object by ID
+- `{objects.type[id].field}` - Extract field from specific object
+- `{path.param}` - Use URL path parameters in responses

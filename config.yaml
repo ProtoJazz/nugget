@@ -98,6 +98,22 @@ routes:
         usernames: "{objects.users.username}"
         user_count: 0
 
+  # Advanced analytics dashboard
+  - path: /analytics/dashboard
+    method: GET
+    response:
+      status: 200
+      body:
+        summary:
+          total_orders: "{objects.orders}"
+          total_users: "{objects.users}"
+          revenue_by_customer: "{objects.orders.total}"
+          active_customers: "{objects.orders.customer}"
+          admin_users: "{objects.users.role}"
+        details:
+          recent_orders: "{objects.orders}"
+          user_breakdown: "{objects.users.username}"
+
   # Health check endpoint
   - path: /health
     method: GET
