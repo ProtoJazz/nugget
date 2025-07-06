@@ -1,0 +1,164 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: nugget
+            asset_name: nugget-linux-x86_64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact_name: nugget
+            asset_name: nugget-linux-aarch64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: nugget
+            asset_name: nugget-macos-x86_64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: nugget
+            asset_name: nugget-macos-aarch64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: nugget.exe
+            asset_name: nugget-windows-x86_64.exe
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
+
+    - name: Install cross-compilation tools
+      if: matrix.target == 'aarch64-unknown-linux-gnu'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-aarch64-linux-gnu
+
+    - name: Build
+      run: cargo build --release --target ${{ matrix.target }}
+
+    - name: Prepare artifact
+      run: |
+        mkdir -p artifacts
+        cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} artifacts/${{ matrix.asset_name }}
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.asset_name }}
+        path: artifacts/${{ matrix.asset_name }}
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Display structure of downloaded files
+      run: ls -la artifacts/
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        body: |
+          ## Nugget ${{ github.ref_name }}
+          
+          A dynamic HTTP stub server with cross-references.
+          
+          ### Features
+          - Dynamic response generation with variable substitution
+          - Cross-reference system for related data
+          - Path parameter extraction
+          - Payload interpolation with type preservation
+          - State management with `/state/clear` endpoint
+          
+          ### Usage
+          ```bash
+          # Run with default config
+          ./nugget
+          
+          # Custom config and port
+          ./nugget -c config.yaml -p 8080
+          ```
+          
+          ### Installation
+          Download the appropriate binary for your platform, make it executable, and run!
+        draft: false
+        prerelease: false
+
+    - name: Upload Linux x86_64
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: artifacts/nugget-linux-x86_64/nugget-linux-x86_64
+        asset_name: nugget-linux-x86_64
+        asset_content_type: application/octet-stream
+
+    - name: Upload Linux ARM64
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: artifacts/nugget-linux-aarch64/nugget-linux-aarch64
+        asset_name: nugget-linux-aarch64
+        asset_content_type: application/octet-stream
+
+    - name: Upload macOS x86_64
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: artifacts/nugget-macos-x86_64/nugget-macos-x86_64
+        asset_name: nugget-macos-x86_64
+        asset_content_type: application/octet-stream
+
+    - name: Upload macOS ARM64
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: artifacts/nugget-macos-aarch64/nugget-macos-aarch64
+        asset_name: nugget-macos-aarch64
+        asset_content_type: application/octet-stream
+
+    - name: Upload Windows x86_64
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: artifacts/nugget-windows-x86_64.exe/nugget-windows-x86_64.exe
+        asset_name: nugget-windows-x86_64.exe
+        asset_content_type: application/octet-stream

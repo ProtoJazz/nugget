@@ -1,0 +1,119 @@
+# Enhanced configuration with cross-references
+routes:
+  # Create a new order
+  - path: /orders
+    method: POST
+    object_name: orders  # Name this object type
+    store_object: true   # Store for cross-references
+    variables:
+      id:
+        type: uuid
+      order_number:
+        type: integer
+    response:
+      status: 201
+      body:
+        id: "{id}"
+        order_number: "{order_number}"
+        items: "{payload.items}"
+        customer: "{payload.customer}"
+        status: "pending"
+        total: "{payload.total}"
+        created_at: "2024-01-01T00:00:00Z"
+
+  # Get an order by ID
+  - path: /orders/{id}
+    method: GET
+    response:
+      status: 200
+      body:
+        message: "Order not found"
+
+  # Create a user
+  - path: /users
+    method: POST
+    object_name: users
+    store_object: true
+    variables:
+      id:
+        type: uuid
+      user_id:
+        type: integer
+    response:
+      status: 201
+      body:
+        id: "{id}"
+        user_id: "{user_id}"
+        username: "{payload.username}"
+        email: "{payload.email}"
+        role: "{payload.role}"
+        created_at: "2024-01-01T00:00:00Z"
+
+  # Get user by ID
+  - path: /users/{id}
+    method: GET
+    response:
+      status: 200
+      body:
+        message: "User not found"
+
+  # Inventory/Fulfillment endpoint - uses cross-references
+  - path: /inventory/fulfillment
+    method: GET
+    response:
+      status: 200
+      body:
+        pending_orders: "{objects.orders}"
+        order_items: "{objects.orders.items}"
+        total_items_count: 0
+        last_updated: "2024-01-01T00:00:00Z"
+
+  # Order summary by customer
+  - path: /reports/orders
+    method: GET
+    response:
+      status: 200
+      body:
+        all_orders: "{objects.orders}"
+        customers: "{objects.orders.customer}"
+        total_revenue: "{objects.orders.total}"
+
+  # Get specific order items by ID
+  - path: /inventory/order/{id}/items
+    method: GET
+    response:
+      status: 200
+      body:
+        order_id: "{path.id}"
+        items: "{objects.orders[{path.id}].items}"
+        customer: "{objects.orders[{path.id}].customer}"
+
+  # User management dashboard
+  - path: /admin/users
+    method: GET
+    response:
+      status: 200
+      body:
+        users: "{objects.users}"
+        usernames: "{objects.users.username}"
+        user_count: 0
+
+  # Health check endpoint
+  - path: /health
+    method: GET
+    response:
+      status: 200
+      body:
+        status: "healthy"
+        timestamp: "2024-01-01T00:00:00Z"
+        objects_stored:
+          orders: "{objects.orders}"
+          users: "{objects.users}"
+
+# Default values for payload interpolation
+defaults:
+  items: []
+  customer: "Anonymous"
+  role: "user"
+  email: "user@example.com"
+  total: 0
