@@ -162,7 +162,9 @@ async fn handle_request(
 
 fn find_matching_route(config: &Config, method: &str, path: &str) -> Option<Route> {
     for route in &config.routes {
-        if route.method.to_uppercase() == method.to_uppercase() && (route.path == path || path_matches_pattern(&route.path, path)) {
+        if route.method.to_uppercase() == method.to_uppercase()
+            && (route.path == path || path_matches_pattern(&route.path, path))
+        {
             return Some(route.clone());
         }
     }

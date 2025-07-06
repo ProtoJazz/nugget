@@ -290,36 +290,77 @@ async fn test_complete_workflow() {
     // Verify summary section
     assert!(analytics.get("summary").is_some(), "Should have summary");
     let summary = &analytics["summary"];
-    
-    assert!(summary.get("total_orders").is_some(), "Should have total_orders");
-    assert!(summary.get("total_users").is_some(), "Should have total_users");
-    assert!(summary.get("revenue_by_customer").is_some(), "Should have revenue_by_customer");
-    assert!(summary.get("active_customers").is_some(), "Should have active_customers");
-    assert!(summary.get("admin_users").is_some(), "Should have admin_users");
+
+    assert!(
+        summary.get("total_orders").is_some(),
+        "Should have total_orders"
+    );
+    assert!(
+        summary.get("total_users").is_some(),
+        "Should have total_users"
+    );
+    assert!(
+        summary.get("revenue_by_customer").is_some(),
+        "Should have revenue_by_customer"
+    );
+    assert!(
+        summary.get("active_customers").is_some(),
+        "Should have active_customers"
+    );
+    assert!(
+        summary.get("admin_users").is_some(),
+        "Should have admin_users"
+    );
 
     // Verify details section
     assert!(analytics.get("details").is_some(), "Should have details");
     let details = &analytics["details"];
-    
-    assert!(details.get("recent_orders").is_some(), "Should have recent_orders");
-    assert!(details.get("user_breakdown").is_some(), "Should have user_breakdown");
+
+    assert!(
+        details.get("recent_orders").is_some(),
+        "Should have recent_orders"
+    );
+    assert!(
+        details.get("user_breakdown").is_some(),
+        "Should have user_breakdown"
+    );
 
     // Verify cross-reference data
-    let total_orders = summary["total_orders"].as_array().expect("total_orders should be array");
+    let total_orders = summary["total_orders"]
+        .as_array()
+        .expect("total_orders should be array");
     assert_eq!(total_orders.len(), 2, "Should have 2 orders in analytics");
 
-    let total_users = summary["total_users"].as_array().expect("total_users should be array");
+    let total_users = summary["total_users"]
+        .as_array()
+        .expect("total_users should be array");
     assert_eq!(total_users.len(), 2, "Should have 2 users in analytics");
 
-    let active_customers = summary["active_customers"].as_array().expect("active_customers should be array");
+    let active_customers = summary["active_customers"]
+        .as_array()
+        .expect("active_customers should be array");
     assert_eq!(active_customers.len(), 2, "Should have 2 active customers");
-    assert!(active_customers.contains(&json!("John Doe")), "Should include John Doe");
-    assert!(active_customers.contains(&json!("Jane Smith")), "Should include Jane Smith");
+    assert!(
+        active_customers.contains(&json!("John Doe")),
+        "Should include John Doe"
+    );
+    assert!(
+        active_customers.contains(&json!("Jane Smith")),
+        "Should include Jane Smith"
+    );
 
-    let admin_users = summary["admin_users"].as_array().expect("admin_users should be array");
+    let admin_users = summary["admin_users"]
+        .as_array()
+        .expect("admin_users should be array");
     assert_eq!(admin_users.len(), 2, "Should have 2 user roles");
-    assert!(admin_users.contains(&json!("admin")), "Should include admin role");
-    assert!(admin_users.contains(&json!("user")), "Should include user role");
+    assert!(
+        admin_users.contains(&json!("admin")),
+        "Should include admin role"
+    );
+    assert!(
+        admin_users.contains(&json!("user")),
+        "Should include user role"
+    );
 
     // Step 6: Test health check
     let health = server
