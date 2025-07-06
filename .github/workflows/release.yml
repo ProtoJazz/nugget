@@ -72,6 +72,8 @@ jobs:
     name: Create Release
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
     - uses: actions/checkout@v4
 
@@ -84,85 +86,35 @@ jobs:
       run: ls -la artifacts/
 
     - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ github.ref }}
-        release_name: Release ${{ github.ref }}
-        body: |
-          ## Nugget ${{ github.ref_name }}
-          
-          A dynamic HTTP stub server with cross-references.
-          
-          ### Features
-          - Dynamic response generation with variable substitution
-          - Cross-reference system for related data
-          - Path parameter extraction
-          - Payload interpolation with type preservation
-          - State management with `/state/clear` endpoint
-          
-          ### Usage
-          ```bash
-          # Run with default config
-          ./nugget
-          
-          # Custom config and port
-          ./nugget -c config.yaml -p 8080
-          ```
-          
-          ### Installation
-          Download the appropriate binary for your platform, make it executable, and run!
-        draft: false
-        prerelease: false
-
-    - name: Upload Linux x86_64
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: artifacts/nugget-linux-x86_64/nugget-linux-x86_64
-        asset_name: nugget-linux-x86_64
-        asset_content_type: application/octet-stream
-
-    - name: Upload Linux ARM64
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: artifacts/nugget-linux-aarch64/nugget-linux-aarch64
-        asset_name: nugget-linux-aarch64
-        asset_content_type: application/octet-stream
-
-    - name: Upload macOS x86_64
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: artifacts/nugget-macos-x86_64/nugget-macos-x86_64
-        asset_name: nugget-macos-x86_64
-        asset_content_type: application/octet-stream
-
-    - name: Upload macOS ARM64
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: artifacts/nugget-macos-aarch64/nugget-macos-aarch64
-        asset_name: nugget-macos-aarch64
-        asset_content_type: application/octet-stream
-
-    - name: Upload Windows x86_64
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: artifacts/nugget-windows-x86_64.exe/nugget-windows-x86_64.exe
-        asset_name: nugget-windows-x86_64.exe
-        asset_content_type: application/octet-stream
+      run: |
+        gh release create ${{ github.ref_name }} \
+          --title "Release ${{ github.ref_name }}" \
+          --notes "## Nugget ${{ github.ref_name }}
+        
+        A dynamic HTTP stub server with cross-references.
+        
+        ### Features
+        - Dynamic response generation with variable substitution
+        - Cross-reference system for related data
+        - Path parameter extraction
+        - Payload interpolation with type preservation
+        - State management with \`/state/clear\` endpoint
+        
+        ### Usage
+        \`\`\`bash
+        # Run with default config
+        ./nugget
+        
+        # Custom config and port
+        ./nugget -c config.yaml -p 8080
+        \`\`\`
+        
+        ### Installation
+        Download the appropriate binary for your platform, make it executable, and run!" \
+          artifacts/nugget-linux-x86_64/nugget-linux-x86_64 \
+          artifacts/nugget-linux-aarch64/nugget-linux-aarch64 \
+          artifacts/nugget-macos-x86_64/nugget-macos-x86_64 \
+          artifacts/nugget-macos-aarch64/nugget-macos-aarch64 \
+          artifacts/nugget-windows-x86_64.exe/nugget-windows-x86_64.exe
