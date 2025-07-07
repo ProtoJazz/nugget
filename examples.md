@@ -1,8 +1,8 @@
-# Enhanced Stub Server with Cross-References
+# Enhanced Stub Server with Cross-References and Lua Scripting
 
 ## New Features
 
-The server now supports cross-references between different object types using a powerful reference syntax.
+The server now supports cross-references between different object types using a powerful reference syntax, plus dynamic Lua scripting for complex logic.
 
 ## Cross-Reference Syntax
 
@@ -241,6 +241,335 @@ Response:
 
 This creates a powerful system where you can create relationships between different stub endpoints without hardcoding data!
 
+## Lua Scripting Examples
+
+### 1. Authentication and Authorization
+
+```yaml
+routes:
+  - path: /protected-resource
+    method: GET
+    lua_script: |
+      -- Check if user is authenticated
+      local auth_header = request.headers["authorization"]
+      if not auth_header then
+        return {
+          status = 401,
+          body = { error = "Missing authorization header" }
+        }
+      end
+      
+      -- Simple token validation (in real use, validate against a service)
+      local token = auth_header:match("Bearer (.+)")
+      if token ~= "valid-token-123" then
+        return {
+          status = 403,
+          body = { error = "Invalid token" }
+        }
+      end
+      
+      -- Check user role from header
+      local user_role = request.headers["x-user-role"]
+      if user_role ~= "admin" then
+        return {
+          status = 403,
+          body = { error = "Insufficient permissions" }
+        }
+      end
+      
+      return {
+        status = 200,
+        body = {
+          message = "Access granted",
+          resource = "protected data here"
+        }
+      }
+```
+
+### 2. Rate Limiting and Circuit Breaker
+
+```yaml
+routes:
+  - path: /rate-limited-api
+    method: GET
+    lua_script: |
+      -- Get current request count for this client
+      local client_ip = request.headers["x-forwarded-for"] or "unknown"
+      local rate_key = "rate_limit_" .. client_ip
+      local current_count = state.get(rate_key) or 0
+      
+      -- Check rate limit (5 requests per "window")
+      if current_count >= 5 then
+        return {
+          status = 429,
+          body = {
+            error = "Rate limit exceeded",
+            retry_after = 60
+          }
+        }
+      end
+      
+      -- Increment counter
+      state.set(rate_key, current_count + 1)
+      
+      -- Simulate circuit breaker - every 10th request fails
+      local global_count = state.get("global_requests") or 0
+      global_count = global_count + 1
+      state.set("global_requests", global_count)
+      
+      if global_count % 10 == 0 then
+        return {
+          status = 503,
+          body = { error = "Service temporarily unavailable" }
+        }
+      end
+      
+      return {
+        status = 200,
+        body = {
+          message = "Request successful",
+          requests_remaining = 5 - (current_count + 1),
+          global_request_number = global_count
+        }
+      }
+```
+
+### 3. Dynamic Data Processing with Object Access
+
+```yaml
+routes:
+  # First, create some users (traditional route)
+  - path: /users
+    method: POST
+    object_name: users
+    store_object: true
+    variables:
+      id:
+        type: uuid
+    response:
+      status: 201
+      body:
+        id: "{id}"
+        username: "{payload.username}"
+        email: "{payload.email}"
+        role: "{payload.role}"
+
+  # Then process user data with Lua
+  - path: /admin/user-stats
+    method: GET
+    lua_script: |
+      local users = objects.users or {}
+      
+      -- Analyze user data
+      local total_users = #users
+      local admin_count = 0
+      local user_count = 0
+      local email_domains = {}
+      
+      for i, user in ipairs(users) do
+        -- Count roles
+        if user.role == "admin" then
+          admin_count = admin_count + 1
+        else
+          user_count = user_count + 1
+        end
+        
+        -- Extract email domains
+        local domain = user.email:match("@(.+)")
+        if domain then
+          email_domains[domain] = (email_domains[domain] or 0) + 1
+        end
+      end
+      
+      return {
+        status = 200,
+        body = {
+          total_users = total_users,
+          role_breakdown = {
+            admins = admin_count,
+            users = user_count
+          },
+          email_domains = email_domains,
+          users_list = users
+        }
+      }
+```
+
+### 4. Complex Business Logic with Request Processing
+
+```yaml
+routes:
+  - path: /api/{version}/orders/{order_id}/process
+    method: POST
+    lua_script: |
+      local version = request.path_params.version
+      local order_id = request.path_params.order_id
+      local processing_type = request.body and request.body.type or "standard"
+      
+      -- Validate API version
+      if version ~= "v1" and version ~= "v2" then
+        return {
+          status = 400,
+          body = {
+            error = "Unsupported API version",
+            supported_versions = {"v1", "v2"}
+          }
+        }
+      end
+      
+      -- Find the order in stored objects
+      local orders = objects.orders or {}
+      local found_order = nil
+      for i, order in ipairs(orders) do
+        if order.id == order_id then
+          found_order = order
+          break
+        end
+      end
+      
+      if not found_order then
+        return {
+          status = 404,
+          body = { error = "Order not found" }
+        }
+      end
+      
+      -- Process based on type and version
+      local processing_fee = 0
+      if version == "v2" then
+        processing_fee = processing_type == "express" and 25 or 10
+      else
+        processing_fee = 5
+      end
+      
+      -- Calculate new total
+      local original_total = found_order.total or 0
+      local new_total = original_total + processing_fee
+      
+      -- Store processing record
+      local process_count = state.get("processed_orders") or 0
+      state.set("processed_orders", process_count + 1)
+      
+      return {
+        status = 200,
+        body = {
+          order_id = order_id,
+          original_total = original_total,
+          processing_fee = processing_fee,
+          new_total = new_total,
+          processing_type = processing_type,
+          api_version = version,
+          processed_count = process_count + 1,
+          customer = found_order.customer
+        }
+      }
+```
+
+### 5. Secret Message Example (String Manipulation)
+
+```yaml
+routes:
+  # Store secret message (traditional route)
+  - path: /secret-message
+    method: POST
+    object_name: messages
+    store_object: true
+    variables:
+      id:
+        type: uuid
+    response:
+      status: 201
+      body:
+        id: "{id}"
+        message: "{payload.message}"
+        stored_at: "2024-01-01T00:00:00Z"
+
+  # Retrieve and reverse message (Lua script)
+  - path: /secret-message/{id}
+    method: GET
+    lua_script: |
+      local message_id = request.path_params.id
+      local messages = objects.messages or {}
+      local found_message = nil
+      
+      -- Find message by ID
+      for i, msg in ipairs(messages) do
+        if msg.id == message_id then
+          found_message = msg
+          break
+        end
+      end
+      
+      if not found_message then
+        return {
+          status = 404,
+          body = { error = "Message not found" }
+        }
+      end
+      
+      -- Reverse the message
+      local original = found_message.message
+      local reversed = ""
+      for i = #original, 1, -1 do
+        reversed = reversed .. string.sub(original, i, i)
+      end
+      
+      return {
+        status = 200,
+        body = {
+          id = message_id,
+          original_message = original,
+          reversed_message = reversed,
+          retrieved_at = os.date("%Y-%m-%dT%H:%M:%SZ")
+        }
+      }
+```
+
+## Lua Script Capabilities
+
+### Request Context Access
+- `request.method` - HTTP method
+- `request.path` - Request path
+- `request.headers["name"]` - Request headers
+- `request.body` - Request body (parsed JSON)
+- `request.path_params.param` - URL path parameters
+
+### Persistent State Management
+- `state.get("key")` - Retrieve persistent values
+- `state.set("key", value)` - Store persistent values
+- State persists across all requests until server restart or `/state/clear`
+
+### Object Access
+- `objects.type` - Access stored objects from other endpoints
+- Objects are the same as available in template cross-references
+- Perfect for building complex relationships between endpoints
+
+### Response Control
+- Return `{ status = 200, body = {...} }` for full HTTP response control
+- Status codes: 200, 201, 400, 401, 403, 404, 429, 500, 503, etc.
+- Body can be any Lua table (converted to JSON)
+
+## Testing Lua Scripts
+
+```bash
+# Test authentication
+curl -H "authorization: Bearer valid-token-123" \
+     -H "x-user-role: admin" \
+     http://localhost:3000/protected-resource
+
+# Test rate limiting
+for i in {1..7}; do
+  curl http://localhost:3000/rate-limited-api
+done
+
+# Test secret message
+MESSAGE_ID=$(curl -X POST http://localhost:3000/secret-message \
+  -H "Content-Type: application/json" \
+  -d '{"message": "od selffaw doog tahw si rehtegot gnikcits"}' | jq -r .id)
+
+curl http://localhost:3000/secret-message/$MESSAGE_ID
+# Returns: "sticking together is what good waffles do"
+```
 
 # Create orders
 POST /orders → stores as "orders" objects

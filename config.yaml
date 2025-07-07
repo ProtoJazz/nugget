@@ -125,6 +125,15 @@ routes:
         objects_stored:
           orders: "{objects.orders}"
           users: "{objects.users}"
+  
+  # Failure check endpoint
+  - path: /failure
+    method: GET
+    response:
+      status: 500
+      body:
+        status: "simulated, or possible real failure"
+        timestamp: "2024-01-01T00:00:00Z"
 
 # Default values for payload interpolation
 defaults:

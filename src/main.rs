@@ -178,6 +178,7 @@ async fn handle_request(
     if let Some(route) = route {
         let response = process_response(&state, &route, &path, payload.as_ref(), &headers).await;
 
+        // Check for Lua script status (top-level status field)
         if let Some(status_value) = response.get("status") {
             if let Some(status_code) = status_value.as_u64() {
                 let status = StatusCode::from_u16(status_code as u16)
@@ -186,6 +187,16 @@ async fn handle_request(
                 let body = response.get("body").unwrap_or(&response).clone();
 
                 return Ok((status, Json(body)).into_response());
+            }
+        }
+
+        // Check for traditional template status
+        if let Some(response_template) = &route.response {
+            if let Some(template_status) = response_template.status {
+                let status = StatusCode::from_u16(template_status)
+                    .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+
+                return Ok((status, Json(response)).into_response());
             }
         }
 
