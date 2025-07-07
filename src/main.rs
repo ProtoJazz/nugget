@@ -334,7 +334,7 @@ async fn execute_lua_script(
 
     let json_result: Value = lua
         .from_value(result)
-        .map_err(|e| format!("Failed to convert Lua result to JSON: {}", e))?;
+        .map_err(|e| format!("Failed to convert Lua result to JSON: {e}"))?;
 
     Ok(json_result)
 }
