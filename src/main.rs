@@ -274,7 +274,7 @@ async fn execute_lua_script(
     let state_set = lua
         .create_function(move |lua, (key, value): (String, LuaValue)| {
             let mut state_guard = state_arc2.write().unwrap();
-            let json_value: Value = lua.from_value(value).unwrap_or_else(|_| json!(null));
+            let json_value: Value = lua.from_value(value).unwrap_or(Value::Null);
             state_guard.insert(key, json_value);
             Ok(())
         })
