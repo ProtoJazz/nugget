@@ -24,7 +24,7 @@ impl TestServer {
             let test_port = port + attempt;
 
             let mut child = Command::new("cargo")
-                .args(&[
+                .args([
                     "run",
                     "--",
                     "--config",
@@ -43,7 +43,7 @@ impl TestServer {
 
             for _ in 0..50 {
                 // Increased wait time
-                if let Ok(response) = client.get(&format!("{}/health", base_url)).send().await {
+                if let Ok(response) = client.get(format!("{}/health", base_url)).send().await {
                     if response.status().is_success() {
                         server_started = true;
                         break;
@@ -69,7 +69,7 @@ impl TestServer {
     async fn post_json(&self, endpoint: &str, data: Value) -> reqwest::Result<Value> {
         let client = Client::new();
         let response = client
-            .post(&format!("{}{}", self.base_url, endpoint))
+            .post(format!("{}{}", self.base_url, endpoint))
             .json(&data)
             .send()
             .await?;
@@ -80,7 +80,7 @@ impl TestServer {
     async fn get_json(&self, endpoint: &str) -> reqwest::Result<Value> {
         let client = Client::new();
         let response = client
-            .get(&format!("{}{}", self.base_url, endpoint))
+            .get(format!("{}{}", self.base_url, endpoint))
             .send()
             .await?;
 
@@ -93,7 +93,7 @@ impl TestServer {
         headers: Vec<(&str, &str)>,
     ) -> reqwest::Result<reqwest::Response> {
         let client = Client::new();
-        let mut request = client.get(&format!("{}{}", self.base_url, endpoint));
+        let mut request = client.get(format!("{}{}", self.base_url, endpoint));
 
         for (key, value) in headers {
             request = request.header(key, value);
@@ -105,7 +105,7 @@ impl TestServer {
     async fn clear_state(&self) -> reqwest::Result<Value> {
         let client = Client::new();
         let response = client
-            .post(&format!("{}/state/clear", self.base_url))
+            .post(format!("{}/state/clear", self.base_url))
             .send()
             .await?;
 
@@ -687,7 +687,7 @@ async fn test_lua_complex_features() {
     // Test successful request
     let client = reqwest::Client::new();
     let response = client
-        .post(&format!("{}/api/v1/users/456", server.base_url))
+        .post(format!("{}/api/v1/users/456", server.base_url))
         .header("user-agent", "TestClient/1.0")
         .json(&request_data)
         .send()
@@ -704,7 +704,7 @@ async fn test_lua_complex_features() {
 
     // Test unsupported API version
     let response = client
-        .post(&format!("{}/api/v2/users/456", server.base_url))
+        .post(format!("{}/api/v2/users/456", server.base_url))
         .json(&request_data)
         .send()
         .await
