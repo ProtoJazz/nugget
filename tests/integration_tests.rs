@@ -12,6 +12,10 @@ struct TestServer {
 
 impl TestServer {
     async fn start() -> Self {
+        Self::start_with_config("config.yaml").await
+    }
+
+    async fn start_with_config(config_file: &str) -> Self {
         // Find an available port starting from 3010
         let port = 3010;
 
@@ -24,7 +28,7 @@ impl TestServer {
                     "run",
                     "--",
                     "--config",
-                    "config.yaml",
+                    config_file,
                     "--port",
                     &test_port.to_string(),
                 ])
@@ -81,6 +85,21 @@ impl TestServer {
             .await?;
 
         response.json().await
+    }
+
+    async fn get_with_headers(
+        &self,
+        endpoint: &str,
+        headers: Vec<(&str, &str)>,
+    ) -> reqwest::Result<reqwest::Response> {
+        let client = Client::new();
+        let mut request = client.get(&format!("{}{}", self.base_url, endpoint));
+
+        for (key, value) in headers {
+            request = request.header(key, value);
+        }
+
+        request.send().await
     }
 
     async fn clear_state(&self) -> reqwest::Result<Value> {
@@ -471,4 +490,284 @@ async fn test_payload_interpolation() {
     assert_eq!(minimal_order["customer"], "Anonymous"); // default from config
     assert_eq!(minimal_order["total"], 0); // default from config
     assert_eq!(minimal_order["status"], "pending"); // hardcoded in template
+}
+
+#[tokio::test]
+async fn test_lua_basic_functionality() {
+    let server = TestServer::start_with_config("lua-test.yaml").await;
+
+    // Test basic Lua response
+    let response = server
+        .get_json("/lua-hello")
+        .await
+        .expect("Failed to get lua-hello");
+
+    assert_eq!(response["message"], "Hello from Lua!");
+    assert_eq!(response["method"], "GET");
+    assert_eq!(response["path"], "/lua-hello");
+}
+
+#[tokio::test]
+async fn test_lua_authentication() {
+    let server = TestServer::start_with_config("lua-test.yaml").await;
+
+    // Test without auth header (should get 401)
+    let response = server
+        .get_with_headers("/auth-check", vec![])
+        .await
+        .expect("Failed to get auth-check");
+
+    assert_eq!(response.status(), 401);
+
+    let body: Value = response.json().await.expect("Failed to parse JSON");
+    assert_eq!(body["error"], "Unauthorized");
+    assert_eq!(body["message"], "Authentication required");
+
+    // Test with wrong user (should get 401)
+    let response = server
+        .get_with_headers("/auth-check", vec![("user", "bob")])
+        .await
+        .expect("Failed to get auth-check");
+
+    assert_eq!(response.status(), 401);
+
+    // Test with admin user (should get 200)
+    let response = server
+        .get_with_headers("/auth-check", vec![("user", "admin")])
+        .await
+        .expect("Failed to get auth-check");
+
+    assert_eq!(response.status(), 200);
+
+    let body: Value = response.json().await.expect("Failed to parse JSON");
+    assert_eq!(body["message"], "Welcome, admin");
+}
+
+#[tokio::test]
+async fn test_lua_state_management() {
+    let server = TestServer::start_with_config("lua-test.yaml").await;
+
+    // Clear state first
+    server.clear_state().await.expect("Failed to clear state");
+
+    // Test the flaky endpoint - should follow pattern: success, success, fail, success...
+
+    // Request 1 - should succeed
+    let response1 = server
+        .get_with_headers("/flaky-endpoint", vec![])
+        .await
+        .expect("Failed to get flaky-endpoint");
+
+    assert_eq!(response1.status(), 200);
+    let body1: Value = response1.json().await.expect("Failed to parse JSON");
+    assert_eq!(body1["message"], "Request successful");
+    assert_eq!(body1["request_number"], 1);
+
+    // Request 2 - should succeed
+    let response2 = server
+        .get_with_headers("/flaky-endpoint", vec![])
+        .await
+        .expect("Failed to get flaky-endpoint");
+
+    assert_eq!(response2.status(), 200);
+    let body2: Value = response2.json().await.expect("Failed to parse JSON");
+    assert_eq!(body2["message"], "Request successful");
+    assert_eq!(body2["request_number"], 2);
+
+    // Request 3 - should fail
+    let response3 = server
+        .get_with_headers("/flaky-endpoint", vec![])
+        .await
+        .expect("Failed to get flaky-endpoint");
+
+    assert_eq!(response3.status(), 500);
+    let body3: Value = response3.json().await.expect("Failed to parse JSON");
+    assert_eq!(body3["error"], "Simulated failure");
+    assert_eq!(body3["request_number"], 3);
+
+    // Request 4 - should succeed again
+    let response4 = server
+        .get_with_headers("/flaky-endpoint", vec![])
+        .await
+        .expect("Failed to get flaky-endpoint");
+
+    assert_eq!(response4.status(), 200);
+    let body4: Value = response4.json().await.expect("Failed to parse JSON");
+    assert_eq!(body4["message"], "Request successful");
+    assert_eq!(body4["request_number"], 4);
+}
+
+#[tokio::test]
+async fn test_lua_state_persistence_across_endpoints() {
+    let server = TestServer::start_with_config("lua-test.yaml").await;
+
+    // Clear state
+    server.clear_state().await.expect("Failed to clear state");
+
+    // Hit flaky endpoint to increment counter
+    let _ = server.get_with_headers("/flaky-endpoint", vec![]).await;
+    let _ = server.get_with_headers("/flaky-endpoint", vec![]).await;
+
+    // Hit it again - should be request #3 and fail
+    let response = server
+        .get_with_headers("/flaky-endpoint", vec![])
+        .await
+        .expect("Failed to get flaky-endpoint");
+
+    assert_eq!(response.status(), 500);
+    let body: Value = response.json().await.expect("Failed to parse JSON");
+    assert_eq!(body["request_number"], 3);
+}
+
+#[tokio::test]
+async fn test_traditional_template_still_works() {
+    let server = TestServer::start_with_config("lua-test.yaml").await;
+
+    // Test that traditional templates still work alongside Lua
+    let response = server
+        .get_json("/traditional")
+        .await
+        .expect("Failed to get traditional endpoint");
+
+    assert_eq!(
+        response["message"],
+        "This is a traditional template response"
+    );
+    assert_eq!(response["timestamp"], "2024-01-01T00:00:00Z");
+}
+
+#[tokio::test]
+async fn test_lua_body_access() {
+    let server = TestServer::start_with_config("lua-test.yaml").await;
+
+    // Test POST request with JSON body
+    let test_data = json!({
+        "name": "John Doe",
+        "email": "john@example.com",
+        "age": 30
+    });
+
+    let response = server
+        .post_json("/echo-body", test_data.clone())
+        .await
+        .expect("Failed to post to echo-body");
+
+    assert_eq!(response["message"], "Echo of request body");
+    assert_eq!(response["received_body"], test_data);
+}
+
+#[tokio::test]
+async fn test_lua_path_parameters() {
+    let server = TestServer::start_with_config("lua-test.yaml").await;
+
+    // Test path parameter extraction
+    let response = server
+        .get_json("/users/123/profile")
+        .await
+        .expect("Failed to get user profile");
+
+    assert_eq!(response["user_id"], "123");
+    assert_eq!(response["profile"]["name"], "User 123");
+    assert_eq!(response["profile"]["active"], true);
+}
+
+#[tokio::test]
+async fn test_lua_complex_features() {
+    let server = TestServer::start_with_config("lua-test.yaml").await;
+
+    // Test complex route with path params, headers, and body
+    let request_data = json!({
+        "username": "johndoe",
+        "preferences": {
+            "theme": "dark",
+            "notifications": true
+        }
+    });
+
+    // Test successful request
+    let client = reqwest::Client::new();
+    let response = client
+        .post(&format!("{}/api/v1/users/456", server.base_url))
+        .header("user-agent", "TestClient/1.0")
+        .json(&request_data)
+        .send()
+        .await
+        .expect("Failed to send request");
+
+    assert_eq!(response.status(), 201);
+
+    let body: Value = response.json().await.expect("Failed to parse JSON");
+    assert_eq!(body["user_id"], "456");
+    assert_eq!(body["version"], "v1");
+    assert_eq!(body["user_agent"], "TestClient/1.0");
+    assert_eq!(body["received_data"], request_data);
+
+    // Test unsupported API version
+    let response = client
+        .post(&format!("{}/api/v2/users/456", server.base_url))
+        .json(&request_data)
+        .send()
+        .await
+        .expect("Failed to send request");
+
+    assert_eq!(response.status(), 400);
+
+    let body: Value = response.json().await.expect("Failed to parse JSON");
+    assert_eq!(body["error"], "Unsupported API version");
+    assert!(
+        body["supported_versions"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("v1"))
+    );
+}
+
+#[tokio::test]
+async fn test_lua_object_access_and_string_reversal() {
+    let server = TestServer::start_with_config("lua-test.yaml").await;
+
+    // Clear state first
+    server.clear_state().await.expect("Failed to clear state");
+
+    // Post the secret message
+    let secret_message = "od selffaw doog tahw si rehtegot gnikcits";
+    let response = server
+        .post_json(
+            "/secret-message",
+            json!({
+                "message": secret_message
+            }),
+        )
+        .await
+        .expect("Failed to post secret message");
+
+    // Verify the message was stored
+    assert!(response.get("id").is_some());
+    assert_eq!(response["message"], secret_message);
+
+    let message_id = response["id"].as_str().unwrap();
+
+    // Retrieve and reverse the message using Lua
+    let response = server
+        .get_json(&format!("/secret-message/{}", message_id))
+        .await
+        .expect("Failed to get secret message");
+
+    assert_eq!(response["id"], message_id);
+    assert_eq!(response["original_message"], secret_message);
+    assert_eq!(
+        response["reversed_message"],
+        "sticking together is what good waffles do"
+    );
+
+    // Test with non-existent message ID
+    let response = server
+        .get_with_headers("/secret-message/non-existent-id", vec![])
+        .await
+        .expect("Failed to get non-existent message");
+
+    assert_eq!(response.status(), 404);
+    let body: Value = response.json().await.expect("Failed to parse JSON");
+    assert_eq!(body["error"], "Message not found");
+    assert_eq!(body["id"], "non-existent-id");
 }

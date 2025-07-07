@@ -2,10 +2,11 @@ use axum::{
     Router,
     extract::{Request, State},
     http::{Method, StatusCode},
-    response::Json,
+    response::{IntoResponse, Json},
     routing::{any, get, post},
 };
 use clap::Parser;
+use mlua::{Lua, LuaSerdeExt, Value as LuaValue};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -35,8 +36,9 @@ struct Config {
 struct Route {
     path: String,
     method: String,
-    response: ResponseTemplate,
+    response: Option<ResponseTemplate>,
     variables: Option<HashMap<String, VariableConfig>>,
+    lua_script: Option<String>,
     /// Name for this object type (e.g., "orders", "users")
     object_name: Option<String>,
     /// Whether to store this response for cross-references
@@ -56,10 +58,19 @@ struct VariableConfig {
     default: Option<Value>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredObject {
     id: String,
     data: Value,
+}
+
+#[derive(Debug, Clone)]
+struct LuaRequestContext {
+    method: String,
+    path: String,
+    headers: HashMap<String, String>,
+    body: Option<Value>,
+    path_params: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -67,6 +78,7 @@ struct AppState {
     config: Config,
     storage: Arc<RwLock<HashMap<String, Value>>>,
     objects: Arc<RwLock<HashMap<String, Vec<StoredObject>>>>,
+    lua_state: Arc<RwLock<HashMap<String, Value>>>,
 }
 
 #[tokio::main]
@@ -84,6 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config: config.clone(),
         storage: Arc::new(RwLock::new(HashMap::new())),
         objects: Arc::new(RwLock::new(HashMap::new())),
+        lua_state: Arc::new(RwLock::new(HashMap::new())),
     };
 
     let mut app = Router::new();
@@ -123,6 +136,10 @@ async fn clear_state(State(state): State<AppState>) -> Json<Value> {
         let mut storage = state.storage.write().unwrap();
         storage.clear();
     }
+    {
+        let mut lua_state = state.lua_state.write().unwrap();
+        lua_state.clear();
+    }
 
     Json(json!({
         "status": "cleared",
@@ -133,9 +150,15 @@ async fn clear_state(State(state): State<AppState>) -> Json<Value> {
 async fn handle_request(
     State(state): State<AppState>,
     req: Request,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<impl IntoResponse, StatusCode> {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
+
+    let headers: HashMap<String, String> = req
+        .headers()
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+        .collect();
 
     let payload = if method == Method::POST || method == Method::PUT || method == Method::PATCH {
         let body = axum::body::to_bytes(req.into_body(), usize::MAX)
@@ -153,8 +176,20 @@ async fn handle_request(
     let route = find_matching_route(&state.config, method.as_ref(), &path);
 
     if let Some(route) = route {
-        let response = process_response(&state, &route, &path, payload.as_ref()).await;
-        Ok(Json(response))
+        let response = process_response(&state, &route, &path, payload.as_ref(), &headers).await;
+
+        if let Some(status_value) = response.get("status") {
+            if let Some(status_code) = status_value.as_u64() {
+                let status = StatusCode::from_u16(status_code as u16)
+                    .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+
+                let body = response.get("body").unwrap_or(&response).clone();
+
+                return Ok((status, Json(body)).into_response());
+            }
+        }
+
+        Ok(Json(response).into_response())
     } else {
         Err(StatusCode::NOT_FOUND)
     }
@@ -191,79 +226,202 @@ fn path_matches_pattern(pattern: &str, path: &str) -> bool {
     true
 }
 
+async fn execute_lua_script(
+    script: &str,
+    state: &AppState,
+    request_context: &LuaRequestContext,
+) -> Result<Value, String> {
+    let lua = Lua::new();
+
+    let request_table = lua.create_table().map_err(|e| e.to_string())?;
+    request_table
+        .set("method", request_context.method.clone())
+        .map_err(|e| e.to_string())?;
+    request_table
+        .set("path", request_context.path.clone())
+        .map_err(|e| e.to_string())?;
+
+    let headers_table = lua.create_table().map_err(|e| e.to_string())?;
+    for (key, value) in &request_context.headers {
+        headers_table
+            .set(key.clone(), value.clone())
+            .map_err(|e| e.to_string())?;
+    }
+
+    let state_arc = state.lua_state.clone();
+    let state_get = lua
+        .create_function(move |lua, key: String| {
+            let state_guard = state_arc.read().unwrap();
+            match state_guard.get(&key) {
+                Some(value) => lua.to_value(value),
+                None => Ok(LuaValue::Nil),
+            }
+        })
+        .map_err(|e| e.to_string())?;
+
+    let state_arc2 = state.lua_state.clone();
+    let state_set = lua
+        .create_function(move |lua, (key, value): (String, LuaValue)| {
+            let mut state_guard = state_arc2.write().unwrap();
+            let json_value: Value = lua.from_value(value).unwrap_or_else(|_| json!(null));
+            state_guard.insert(key, json_value);
+            Ok(())
+        })
+        .map_err(|e| e.to_string())?;
+
+    let state_table = lua.create_table().map_err(|e| e.to_string())?;
+    state_table
+        .set("get", state_get)
+        .map_err(|e| e.to_string())?;
+    state_table
+        .set("set", state_set)
+        .map_err(|e| e.to_string())?;
+
+    lua.globals()
+        .set("state", state_table)
+        .map_err(|e| e.to_string())?;
+
+    let objects_guard = state.objects.read().unwrap();
+    let mut lua_objects: HashMap<String, Vec<Value>> = HashMap::new();
+
+    for (object_type, stored_objects) in objects_guard.iter() {
+        let data_objects: Vec<Value> = stored_objects.iter().map(|obj| obj.data.clone()).collect();
+        lua_objects.insert(object_type.clone(), data_objects);
+    }
+
+    let objects_value = lua.to_value(&lua_objects).map_err(|e| e.to_string())?;
+    lua.globals()
+        .set("objects", objects_value)
+        .map_err(|e| e.to_string())?;
+
+    request_table
+        .set("headers", headers_table)
+        .map_err(|e| e.to_string())?;
+
+    if let Some(body) = &request_context.body {
+        let body_value = lua.to_value(body).map_err(|e| e.to_string())?;
+        request_table
+            .set("body", body_value)
+            .map_err(|e| e.to_string())?;
+    }
+
+    let path_params_table = lua.create_table().map_err(|e| e.to_string())?;
+    for (key, value) in &request_context.path_params {
+        path_params_table
+            .set(key.clone(), value.clone())
+            .map_err(|e| e.to_string())?;
+    }
+    request_table
+        .set("path_params", path_params_table)
+        .map_err(|e| e.to_string())?;
+
+    lua.globals()
+        .set("request", request_table)
+        .map_err(|e| e.to_string())?;
+
+    let result: LuaValue = lua.load(script).eval().map_err(|e| e.to_string())?;
+
+    let json_result: Value = lua
+        .from_value(result)
+        .map_err(|e| format!("Failed to convert Lua result to JSON: {}", e))?;
+
+    Ok(json_result)
+}
+
 async fn process_response(
     state: &AppState,
     route: &Route,
     path: &str,
     payload: Option<&Value>,
+    headers: &HashMap<String, String>,
 ) -> Value {
-    let mut response_body = route.response.body.clone();
-
     let path_params = extract_path_parameters(&route.path, path);
-    response_body = replace_path_parameters(&response_body, &path_params);
 
-    response_body = resolve_cross_references(&response_body, &state.objects);
+    if let Some(lua_script) = &route.lua_script {
+        let request_context = LuaRequestContext {
+            method: route.method.clone(),
+            path: path.to_string(),
+            headers: headers.clone(),
+            body: payload.cloned(),
+            path_params: path_params.clone(),
+        };
 
-    if route.method.to_uppercase() == "POST" {
-        if let Some(variables) = &route.variables {
-            let mut generated_vars = HashMap::new();
+        match execute_lua_script(lua_script, state, &request_context).await {
+            Ok(result) => return result,
+            Err(_) => return json!({"error": "Failed to execute Lua script", "status": 500}),
+        }
+    }
 
-            for (var_name, var_config) in variables {
-                let value = generate_variable_value(var_config);
-                generated_vars.insert(var_name.clone(), value);
-            }
+    if let Some(response_template) = &route.response {
+        let mut response_body = response_template.body.clone();
 
-            response_body = replace_variables_in_value(&response_body, &generated_vars);
+        response_body = replace_path_parameters(&response_body, &path_params);
 
-            if let Some(payload) = payload {
-                response_body =
-                    interpolate_payload(&response_body, payload, &state.config.defaults);
-            }
+        response_body = resolve_cross_references(&response_body, &state.objects);
+        if route.method.to_uppercase() == "POST" {
+            if let Some(variables) = &route.variables {
+                let mut generated_vars = HashMap::new();
 
-            if let Some(id_value) = generated_vars.get("id") {
-                let storage_key = format!("{}_{}", route.path, id_value);
-                state
-                    .storage
-                    .write()
-                    .unwrap()
-                    .insert(storage_key, response_body.clone());
+                for (var_name, var_config) in variables {
+                    let value = generate_variable_value(var_config);
+                    generated_vars.insert(var_name.clone(), value);
+                }
 
-                if let Some(object_name) = &route.object_name {
-                    if route.store_object.unwrap_or(true) {
-                        let stored_object = StoredObject {
-                            id: id_value.as_str().unwrap_or("").to_string(),
-                            data: response_body.clone(),
-                        };
+                response_body = replace_variables_in_value(&response_body, &generated_vars);
 
-                        state
-                            .objects
-                            .write()
-                            .unwrap()
-                            .entry(object_name.clone())
-                            .or_default()
-                            .push(stored_object);
+                if let Some(payload) = payload {
+                    response_body =
+                        interpolate_payload(&response_body, payload, &state.config.defaults);
+                }
+
+                if let Some(id_value) = generated_vars.get("id") {
+                    let storage_key = format!("{}_{}", route.path, id_value);
+                    state
+                        .storage
+                        .write()
+                        .unwrap()
+                        .insert(storage_key, response_body.clone());
+
+                    if let Some(object_name) = &route.object_name {
+                        if route.store_object.unwrap_or(true) {
+                            let stored_object = StoredObject {
+                                id: id_value.as_str().unwrap_or("").to_string(),
+                                data: response_body.clone(),
+                            };
+
+                            state
+                                .objects
+                                .write()
+                                .unwrap()
+                                .entry(object_name.clone())
+                                .or_default()
+                                .push(stored_object);
+                        }
                     }
                 }
             }
         }
-    }
 
-    if route.method.to_uppercase() == "GET" && path.contains('/') {
-        let path_parts: Vec<&str> = path.split('/').collect();
-        if let Some(id) = path_parts.last() {
-            let storage_key = format!("{}_{}", path_parts[..path_parts.len() - 1].join("/"), id);
+        if route.method.to_uppercase() == "GET" && path.contains('/') {
+            let path_parts: Vec<&str> = path.split('/').collect();
+            if let Some(id) = path_parts.last() {
+                let storage_key =
+                    format!("{}_{}", path_parts[..path_parts.len() - 1].join("/"), id);
 
-            if let Some(stored_response) = state.storage.read().unwrap().get(&storage_key) {
-                return stored_response.clone();
+                if let Some(stored_response) = state.storage.read().unwrap().get(&storage_key) {
+                    return stored_response.clone();
+                }
             }
         }
-    }
 
-    if let Some(payload) = payload {
-        response_body = interpolate_payload(&response_body, payload, &state.config.defaults);
-    }
+        if let Some(payload) = payload {
+            response_body = interpolate_payload(&response_body, payload, &state.config.defaults);
+        }
 
-    response_body
+        response_body
+    } else {
+        json!({"error": "No response template defined", "status": 500})
+    }
 }
 
 fn resolve_cross_references(

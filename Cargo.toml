@@ -16,6 +16,7 @@ serde_yaml = "0.9"
 clap = { version = "4.0", features = ["derive"] }
 uuid = { version = "1.0", features = ["v4"] }
 rand = "0.8"
+mlua = {version = "0.9", features = ["lua54", "vendored", "serialize"] }
 tower = "0.5"
 
 [dev-dependencies]

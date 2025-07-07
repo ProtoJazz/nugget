@@ -1,0 +1,219 @@
+  routes:
+    # Simple static Lua response
+    - path: /lua-hello
+      method: GET
+      lua_script: |
+        return {
+          status = 200,
+          body = {
+            message = "Hello from Lua!",
+            method = request.method,
+            path = request.path
+          }
+        }
+
+    # Authentication check example
+    - path: /auth-check
+      method: GET
+      lua_script: |
+        -- Simple auth check
+        if request.headers["user"] ~= "admin" then
+          return {
+            status = 401,
+            body = {
+              error = "Unauthorized",
+              message = "Authentication required"
+            }
+          }
+        else 
+          return {
+            status = 200,
+            body = {
+              message = "Welcome, " .. request.headers["user"]
+            }
+          }
+        end
+
+    # Fallback route with traditional template
+    - path: /traditional
+      method: GET
+      response:
+        status: 200
+        body:
+          message: "This is a traditional template response"
+          timestamp: "2024-01-01T00:00:00Z"
+    # Every 3rd request fails
+    - path: /flaky-endpoint
+      method: GET
+      lua_script: |
+        -- Get current request count, default to 0
+        local count = state.get("request_count") or 0
+        count = count + 1
+        state.set("request_count", count)
+
+        -- Every 3rd request fails
+        if count % 3 == 0 then
+          return {
+            status = 500,
+            body = {
+              error = "Simulated failure",
+              request_number = count
+            }
+          }
+        else
+          return {
+            status = 200,
+            body = {
+              message = "Request successful",
+              request_number = count
+            }
+          }
+        end
+
+    # Test body access with POST
+    - path: /echo-body
+      method: POST
+      lua_script: |
+        return {
+          status = 200,
+          body = {
+            received_body = request.body,
+            message = "Echo of request body"
+          }
+        }
+
+    # Test path parameters
+    - path: /users/{id}/profile
+      method: GET
+      lua_script: |
+        local user_id = request.path_params.id
+        return {
+          status = 200,
+          body = {
+            user_id = user_id,
+            profile = {
+              name = "User " .. user_id,
+              active = true
+            }
+          }
+        }
+
+    # Complex example using all features
+    - path: /api/{version}/users/{user_id}
+      method: POST
+      lua_script: |
+        local version = request.path_params.version
+        local user_id = request.path_params.user_id
+        local user_agent = request.headers["user-agent"] or "unknown"
+        
+        -- Check API version
+        if version ~= "v1" then
+          return {
+            status = 400,
+            body = {
+              error = "Unsupported API version",
+              supported_versions = {"v1"}
+            }
+          }
+        end
+        
+        -- Process the request body
+        local response_data = {
+          user_id = user_id,
+          version = version,
+          user_agent = user_agent,
+          processed_at = "2024-01-01T00:00:00Z"
+        }
+        
+        -- Include request body if present
+        if request.body then
+          response_data.received_data = request.body
+        end
+        
+        return {
+          status = 201,
+          body = response_data
+        }
+
+    # Health check endpoint for tests
+    - path: /health
+      method: GET
+      response:
+        status: 200
+        body:
+          status: "healthy"
+          timestamp: "2024-01-01T00:00:00Z"
+
+    # Debug route to see objects structure
+    - path: /debug-objects
+      method: GET
+      lua_script: |
+        return {
+          status = 200,
+          body = {
+            objects = objects,
+            objects_type = type(objects),
+            messages = objects.messages,
+            messages_type = type(objects.messages or "nil")
+          }
+        }
+
+    # Store secret message (traditional route for object storage)
+    - path: /secret-message
+      method: POST
+      object_name: messages
+      store_object: true
+      variables:
+        id:
+          type: uuid
+      response:
+        status: 201
+        body:
+          id: "{id}"
+          message: "{payload.message}"
+          stored_at: "2024-01-01T00:00:00Z"
+
+    # Retrieve and reverse secret message (Lua script with object access)
+    - path: /secret-message/{id}
+      method: GET
+      lua_script: |
+        local message_id = request.path_params.id
+        
+        -- Get the stored message object
+        local messages = objects.messages or {}
+        local found_message = nil
+        
+        -- Find the message by ID
+        for i, msg in ipairs(messages) do
+          if msg.id == message_id then
+            found_message = msg
+            break
+          end
+        end
+        
+        if not found_message then
+          return {
+            status = 404,
+            body = {
+              error = "Message not found",
+              id = message_id
+            }
+          }
+        end
+        
+        -- Reverse the message
+        local original = found_message.message
+        local reversed = ""
+        for i = #original, 1, -1 do
+          reversed = reversed .. string.sub(original, i, i)
+        end
+        
+        return {
+          status = 200,
+          body = {
+            id = message_id,
+            original_message = original,
+            reversed_message = reversed,
+            retrieved_at = "2024-01-01T00:00:00Z"
+          }
+        }
