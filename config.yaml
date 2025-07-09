@@ -135,6 +135,51 @@ routes:
         status: "simulated, or possible real failure"
         timestamp: "2024-01-01T00:00:00Z"
 
+  # Variable generation tests
+  - path: /test/variables/string
+    method: POST
+    variables:
+      id:
+        type: string
+        prefix: "SKU_"
+      name:
+        type: string
+    response:
+      status: 201
+      body:
+        id: "{id}"
+        name: "{name}"
+        message: "String variable test"
+
+  - path: /test/variables/integer
+    method: POST
+    variables:
+      quantity:
+        type: integer
+        min: 1
+        max: 100
+      price:
+        type: integer
+        min: 500
+        max: 2000
+    response:
+      status: 201
+      body:
+        quantity: "{quantity}"
+        price: "{price}"
+        message: "Integer variable test"
+
+  - path: /test/variables/uuid
+    method: POST
+    variables:
+      id:
+        type: uuid
+    response:
+      status: 201
+      body:
+        id: "{id}"
+        message: "UUID variable test"
+
 # Default values for payload interpolation
 defaults:
   items: []
