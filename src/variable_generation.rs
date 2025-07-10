@@ -46,10 +46,7 @@ pub fn validate_variable_parameters(var_config: &VariableConfig) {
         _ => {
             // Unknown type, warn about any parameters
             if var_config.prefix.is_some() || var_config.min.is_some() || var_config.max.is_some() {
-                println!(
-                    "Warning: Unknown variable type '{}'. Parameters may not be supported.",
-                    var_type
-                );
+                println!("Warning: Unknown variable type '{var_type}'. Parameters may not be supported.");
             }
         }
     }
@@ -67,10 +64,7 @@ pub fn generate_variable_value(var_config: &VariableConfig) -> Value {
             let max = var_config.max.unwrap_or(i64::MAX);
 
             if min > max {
-                println!(
-                    "Warning: min value ({}) is greater than max value ({}). Using default range.",
-                    min, max
-                );
+                println!("Warning: min value ({min}) is greater than max value ({max}). Using default range.");
                 json!(rand::random::<u32>())
             } else {
                 let range = (max - min) as u64;
