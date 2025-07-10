@@ -12,15 +12,15 @@ use std::fs;
 use std::sync::{Arc, RwLock};
 use tokio::net::TcpListener;
 
+mod cross_references;
+mod interpolation;
+mod lua_engine;
+mod request_processing;
 mod types;
 mod variable_generation;
-mod cross_references;
-mod lua_engine;
-mod interpolation;
-mod request_processing;
 
-use types::{AppState, Config};
 use request_processing::{find_matching_route, process_response};
+use types::{AppState, Config};
 
 #[derive(Parser, Debug)]
 #[command(name = "nugget")]

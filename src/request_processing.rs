@@ -1,7 +1,7 @@
-use crate::types::{AppState, Config, Route, LuaRequestContext, StoredObject};
 use crate::cross_references::resolve_cross_references;
-use crate::interpolation::{extract_path_parameters, replace_path_parameters, interpolate_payload};
+use crate::interpolation::{extract_path_parameters, interpolate_payload, replace_path_parameters};
 use crate::lua_engine::execute_lua_script;
+use crate::types::{AppState, Config, LuaRequestContext, Route, StoredObject};
 use crate::variable_generation::{generate_variable_value, replace_variables_in_value};
 use serde_json::{Value, json};
 use std::collections::HashMap;

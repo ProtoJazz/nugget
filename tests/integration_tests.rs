@@ -458,87 +458,103 @@ async fn test_variable_generation() {
 #[tokio::test]
 async fn test_string_variable_with_prefix() {
     let server = TestServer::start().await;
-    
+
     // Clear any existing state
     server.clear_state().await.expect("Failed to clear state");
-    
+
     // Test string variable with prefix
     let response = server
         .post_json("/test/variables/string", json!({}))
         .await
         .expect("Failed to test string variables");
-    
+
     assert_eq!(response["message"], "String variable test");
-    
+
     // Verify id has the SKU_ prefix
     let id = response["id"].as_str().unwrap();
     assert!(id.starts_with("SKU_"), "ID should start with SKU_ prefix");
     assert!(id.len() > 4, "ID should be longer than just the prefix");
-    
+
     // Verify name doesn't have prefix (uses default generation)
     let name = response["name"].as_str().unwrap();
-    assert!(name.starts_with("generated_"), "Name should start with generated_");
-    assert!(!name.starts_with("SKU_"), "Name should not have SKU_ prefix");
-    
+    assert!(
+        name.starts_with("generated_"),
+        "Name should start with generated_"
+    );
+    assert!(
+        !name.starts_with("SKU_"),
+        "Name should not have SKU_ prefix"
+    );
+
     // Test multiple requests generate different values
     let response2 = server
         .post_json("/test/variables/string", json!({}))
         .await
         .expect("Failed to test string variables again");
-    
+
     assert_ne!(response["id"], response2["id"], "IDs should be different");
-    assert_ne!(response["name"], response2["name"], "Names should be different");
-    
+    assert_ne!(
+        response["name"], response2["name"],
+        "Names should be different"
+    );
+
     // Both should still have proper prefixes
     let id2 = response2["id"].as_str().unwrap();
-    assert!(id2.starts_with("SKU_"), "Second ID should also start with SKU_ prefix");
+    assert!(
+        id2.starts_with("SKU_"),
+        "Second ID should also start with SKU_ prefix"
+    );
 }
 
 #[tokio::test]
 async fn test_integer_variable_with_min_max() {
     let server = TestServer::start().await;
-    
+
     // Clear any existing state
     server.clear_state().await.expect("Failed to clear state");
-    
+
     // Test integer variables with min/max constraints
     for _ in 0..10 {
         let response = server
             .post_json("/test/variables/integer", json!({}))
             .await
             .expect("Failed to test integer variables");
-        
+
         assert_eq!(response["message"], "Integer variable test");
-        
+
         // Verify quantity is within range [1, 100]
         let quantity = response["quantity"].as_i64().unwrap();
         assert!(quantity >= 1, "Quantity should be >= 1, got {}", quantity);
-        assert!(quantity <= 100, "Quantity should be <= 100, got {}", quantity);
-        
+        assert!(
+            quantity <= 100,
+            "Quantity should be <= 100, got {}",
+            quantity
+        );
+
         // Verify price is within range [500, 2000]
         let price = response["price"].as_i64().unwrap();
         assert!(price >= 500, "Price should be >= 500, got {}", price);
         assert!(price <= 2000, "Price should be <= 2000, got {}", price);
     }
-    
+
     // Test multiple requests generate different values (high probability)
     let response1 = server
         .post_json("/test/variables/integer", json!({}))
         .await
         .expect("Failed to test integer variables");
-    
+
     let response2 = server
         .post_json("/test/variables/integer", json!({}))
         .await
         .expect("Failed to test integer variables");
-    
+
     // Due to randomness, there's a small chance they could be equal, but very unlikely
     // We'll accept that possibility for this test
     let quantity1 = response1["quantity"].as_i64().unwrap();
     let quantity2 = response2["quantity"].as_i64().unwrap();
     let price1 = response1["price"].as_i64().unwrap();
     let price2 = response2["price"].as_i64().unwrap();
-    
+
     // All values should still be in range
     assert!(quantity1 >= 1 && quantity1 <= 100);
     assert!(quantity2 >= 1 && quantity2 <= 100);
@@ -549,38 +565,42 @@ async fn test_integer_variable_with_min_max() {
 #[tokio::test]
 async fn test_uuid_variable_ignores_invalid_params() {
     let server = TestServer::start().await;
-    
+
     // Clear any existing state
     server.clear_state().await.expect("Failed to clear state");
-    
+
     // Test UUID variable generation
     let response = server
         .post_json("/test/variables/uuid", json!({}))
         .await
         .expect("Failed to test UUID variables");
-    
+
     assert_eq!(response["message"], "UUID variable test");
-    
+
     // Verify id is a valid UUID format
     let id = response["id"].as_str().unwrap();
     assert_eq!(id.len(), 36, "UUID should be 36 characters");
     assert!(id.contains('-'), "UUID should contain hyphens");
-    
+
     // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
     let parts: Vec<&str> = id.split('-').collect();
-    assert_eq!(parts.len(), 5, "UUID should have 5 parts separated by hyphens");
+    assert_eq!(
+        parts.len(),
+        5,
+        "UUID should have 5 parts separated by hyphens"
+    );
     assert_eq!(parts[0].len(), 8, "First part should be 8 characters");
     assert_eq!(parts[1].len(), 4, "Second part should be 4 characters");
     assert_eq!(parts[2].len(), 4, "Third part should be 4 characters");
     assert_eq!(parts[3].len(), 4, "Fourth part should be 4 characters");
     assert_eq!(parts[4].len(), 12, "Fifth part should be 12 characters");
-    
+
     // Test multiple requests generate different UUIDs
     let response2 = server
         .post_json("/test/variables/uuid", json!({}))
         .await
         .expect("Failed to test UUID variables again");
-    
+
     let id2 = response2["id"].as_str().unwrap();
     assert_ne!(id, id2, "UUIDs should be different");
     assert_eq!(id2.len(), 36, "Second UUID should also be 36 characters");
